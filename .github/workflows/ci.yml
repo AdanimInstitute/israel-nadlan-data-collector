@@ -1,20 +1,53 @@
 name: CI
 
+# Two changes, from the org-wide draft-first / CI-cost rollout (2026-08-27).
+#
+# 1. `push: "codex/**"` is REMOVED. It ran the whole suite a second time on
+#    every push to a feature branch, duplicating the pull_request run for the
+#    same commit — and, more importantly, it would have defeated the draft
+#    suppression added below: a draft PR's pushes would still have triggered a
+#    full run through the push path. This needed no measurement; the trigger is
+#    structurally redundant with `pull_request`.
+#
+# 2. Draft PRs skip every job. `ready_for_review` MUST stay in the types list:
+#    it is not a default pull_request type, and without it a PR whose draft
+#    pushes were all skipped would get no run when marked ready.
+#
+# `push: main` is KEPT, deliberately, and this is a deferral rather than an
+# endorsement. Elsewhere in the rollout it was replaced by a weekly drift cron,
+# because after a squash-merge it re-validates what the PR run already checked.
+# Two reasons not to here: this repo recorded ZERO Actions runs in August, so
+# there is no measurement to justify the swap and nothing to save; and
+# `cache: pip` is in play, where push:main does a second, easily-missed job —
+# keeping the shared dependency cache alive. Caches written by pull_request runs
+# are scoped to refs/pull/N/merge and invisible to other branches; only
+# default-branch runs write the refs/heads/main cache every branch can restore,
+# and GitHub evicts after 7 days without access. In adanim-welfare-potential
+# (#28) an expired cache turned a 2-billed-minute run into 7. Revisit when this
+# repo has real run data.
+
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   push:
     branches:
       - main
-      - "codex/**"
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Superseded PR runs are cancelled; runs on main are not.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pre-commit:
     name: Pre-commit
+    # Draft PRs skip (reports "skipped", bills nothing).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +65,8 @@ jobs:
 
   unit-tests:
     name: Unit tests (py${{ matrix.python-version }})
+    # Draft PRs skip (reports "skipped", bills nothing).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -64,6 +99,8 @@ jobs:
 
   integration-tests:
     name: Integration tests
+    # Draft PRs skip (reports "skipped", bills nothing).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     env:
       COVERAGE_FILE: .coverage.integration-py312
@@ -92,6 +129,8 @@ jobs:
 
   type-check:
     name: Type check
+    # Draft PRs skip (reports "skipped", bills nothing).
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +150,11 @@ jobs:
     name: Coverage
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
-    if: always()
+    # always() is preserved so coverage still reports when a test job fails;
+    # the added clause is what makes a draft PR skip it too. Without this the
+    # job would run on drafts after its dependencies were skipped, with no
+    # test results to collect.
+    if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -168,7 +211,7 @@ jobs:
 
   pr-agent-context:
     name: PR agent context
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && github.event_name == 'pull_request' && !github.event.pull_request.draft }}
     needs: [pre-commit, unit-tests, integration-tests, type-check, coverage]
     permissions:
       contents: read

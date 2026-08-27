@@ -16,6 +16,18 @@
 - Use `codex/<topic>` or `refactor/<topic>` for agent branches.
 - Keep changes scoped to this repository only.
 
+## Pull Requests
+
+- **Always create pull requests as drafts.** While the PR is a draft, add the
+  description, labels, the relevant milestone, and any eligible CI-selection
+  label; mark it ready for review only after that preparation is complete.
+  Draft is the starting state; ready is the handoff state — both halves apply.
+- CI skips every job on draft PRs by design and runs once when the PR is marked
+  ready. `pr-agent-context` posts at that point too, which is when a reviewer
+  actually needs it. Use the **Commands** above while iterating on a draft.
+- `ci:fast` is deliberately not adopted here: the bill is job count, and no
+  label can remove jobs without dropping coverage or a test tier.
+
 ## Hard Constraints
 
 - Treat this repository as a complete public collector project.
